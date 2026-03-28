@@ -10,6 +10,8 @@
 
 [![Salient Hook walkthrough](https://cdn.loom.com/sessions/thumbnails/adc6ecde987f484b8bd7bf1410afcaa3-160cbf173978a734-full-play.jpg)](https://www.loom.com/share/adc6ecde987f484b8bd7bf1410afcaa3)
 
+[![Salient Hook walkthrough](https://cdn.loom.com/sessions/thumbnails/eda2365c35824a7e99c6dbf9256d67e5-a857769cebb9e31a-full-play.jpg)](https://www.loom.com/share/eda2365c35824a7e99c6dbf9256d67e5)
+
 ---
 
 ## Why I built this
