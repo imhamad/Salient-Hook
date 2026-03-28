@@ -6,6 +6,10 @@
 **Requires PHP:** 7.4 – 8.4
 **Requires WordPress:** 5.9+
 
+## Watch
+
+[![Salient Hook walkthrough](https://cdn.loom.com/sessions/thumbnails/adc6ecde987f484b8bd7bf1410afcaa3-with-play.gif)](https://www.loom.com/share/adc6ecde987f484b8bd7bf1410afcaa3)
+
 ---
 
 ## Why I built this
