@@ -1,0 +1,17 @@
+# IDE
+.vscode/
+
+# Composer
+vendor/
+composer.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHP CS Fixer cache
+.php-cs-fixer.cache
+.php_cs.cache
+
+# Project memory (internal notes, not for repo)
+memory/
