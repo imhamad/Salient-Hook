@@ -8,7 +8,7 @@
 
 ## Watch
 
-[![Salient Hook walkthrough](https://cdn.loom.com/sessions/thumbnails/adc6ecde987f484b8bd7bf1410afcaa3-with-play.gif)](https://www.loom.com/share/adc6ecde987f484b8bd7bf1410afcaa3)
+[![Salient Hook walkthrough](https://cdn.loom.com/sessions/thumbnails/adc6ecde987f484b8bd7bf1410afcaa3-160cbf173978a734-full-play.jpg)](https://www.loom.com/share/adc6ecde987f484b8bd7bf1410afcaa3)
 
 ---
 
