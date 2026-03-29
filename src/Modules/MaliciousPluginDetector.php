@@ -49,12 +49,31 @@ final class MaliciousPluginDetector
      * @var array<string, string>
      */
     private const CODE_IOCS = [
-        'emergency_login_all_admins' => 'Known malware function name',
-        'execute_admin_command'      => 'Known malware function name',
-        'harp_interesting'           => 'Known malware GET parameter',
-        'terrorise_seriously'        => 'Known malware GET parameter',
-        'workaem'                    => 'Known C2 domain fragment',
-        '45.61.136.85'               => 'Known C2 IP address',
+        // --- LummaStealer campaign (WP Performance Analytics) ----------------
+        'emergency_login_all_admins' => 'LummaStealer malware function name',
+        'execute_admin_command'      => 'LummaStealer malware function name',
+        'harp_interesting'           => 'LummaStealer malware GET parameter',
+        'terrorise_seriously'        => 'LummaStealer malware GET parameter',
+        'workaem'                    => 'LummaStealer C2 domain fragment',
+        '45.61.136.85'               => 'LummaStealer C2 IP address',
+        // --- ClickFix / DoubleDonut campaign (Rapid7 TR-2025) ----------------
+        '__performance_optimizer_v6' => 'ClickFix JS evasion flag',
+        'goveanrs.org'               => 'ClickFix JS hosting domain',
+        'getalib.org'                => 'ClickFix JS hosting domain',
+        'ligovera.shop'              => 'ClickFix JS hosting domain',
+        'alianzeg.shop'              => 'ClickFix JS hosting domain',
+        'cptoptious.com'             => 'ClickFix implant domain',
+        'captioto.com'               => 'ClickFix implant domain',
+        'captoolsz.com'              => 'ClickFix implant domain',
+        'capztoolz.com'              => 'ClickFix implant domain',
+        'greecpt.shop'               => 'ClickFix implant domain',
+        '91.92.240.219'              => 'ClickFix C2 IP address',
+        '178.16.53.70'               => 'ClickFix C2 IP address',
+        '94.154.35.115'              => 'ClickFix C2 IP address',
+        '172.94.9.187'               => 'ClickFix C2 IP address (March 2026)',
+        'ajjs_run'                   => 'ClickFix admin-ajax injection action',
+        'cptch.bin'                  => 'ClickFix first-stage shellcode filename',
+        'cptchbuild.bin'             => 'ClickFix second-stage shellcode filename',
     ];
 
     // =========================================================================

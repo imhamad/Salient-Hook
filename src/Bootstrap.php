@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SalientHook;
 
 use SalientHook\Admin\SettingsPage;
+use SalientHook\Modules\DatabaseScanner;
 use SalientHook\Modules\MaliciousPluginDetector;
 use SalientHook\Modules\PluginInstallLocker;
 use SalientHook\Modules\PluginUpdateLocker;
@@ -38,6 +39,7 @@ final class Bootstrap
         require_once SALIENTHOOK_DIR . 'src/Modules/MaliciousPluginDetector.php';
         require_once SALIENTHOOK_DIR . 'src/Modules/ThemeIntegrityScanner.php';
         require_once SALIENTHOOK_DIR . 'src/Modules/ThreatScanner.php';
+        require_once SALIENTHOOK_DIR . 'src/Modules/DatabaseScanner.php';
         require_once SALIENTHOOK_DIR . 'src/Admin/SettingsPage.php';
 
         $updateLocker   = new PluginUpdateLocker();
@@ -46,7 +48,14 @@ final class Bootstrap
         $pluginDetector = new MaliciousPluginDetector();
         $themeScanner   = new ThemeIntegrityScanner();
         $threatScanner  = new ThreatScanner();
-        $settingsPage   = new SettingsPage($pluginDetector, $themeScanner, $threatScanner, $safeCorridor);
+        $dbScanner      = new DatabaseScanner();
+        $settingsPage   = new SettingsPage(
+            $pluginDetector,
+            $themeScanner,
+            $threatScanner,
+            $dbScanner,
+            $safeCorridor
+        );
 
         // --- Runtime hooks (priority 0 = beat competing plugins) ---
         add_action('plugins_loaded', [$updateLocker,   'register'], 0);
@@ -55,11 +64,10 @@ final class Bootstrap
         add_action('plugins_loaded', [$pluginDetector, 'register'], 0);
         add_action('plugins_loaded', [$themeScanner,   'register'], 0);
         add_action('plugins_loaded', [$threatScanner,  'register'], 0);
+        add_action('plugins_loaded', [$dbScanner,      'register'], 0);
         add_action('plugins_loaded', [$settingsPage,   'register'], 0);
 
         // --- Activation hooks ---
-        // Must be registered here (top-level), NOT inside plugins_loaded callbacks,
-        // because the activate_{plugin} hook fires before plugins_loaded.
         register_activation_hook(\SALIENTHOOK_FILE, [$updateLocker,   'flushUpdateTransients']);
         register_activation_hook(\SALIENTHOOK_FILE, [$installLocker,  'flushInstallTransients']);
         register_activation_hook(\SALIENTHOOK_FILE, [$pluginDetector, 'registerCron']);
