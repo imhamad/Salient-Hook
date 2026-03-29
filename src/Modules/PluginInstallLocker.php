@@ -257,6 +257,12 @@ final class PluginInstallLocker
             return;
         }
 
+        // Corridor is open — SafeCorridor's own banner already communicates this.
+        // Showing "disabled" here while installs are actually allowed is misleading.
+        if (SafeCorridor::isOpen()) {
+            return;
+        }
+
         // Generic hardening notice.
         echo '<div class="notice notice-warning">'
             . '<p><strong>Salient Hook:</strong> '
