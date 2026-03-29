@@ -15,3 +15,6 @@ Thumbs.db
 
 # Project memory (internal notes, not for repo)
 memory/
+
+# Article (published separately on website)
+article.html
