@@ -10,6 +10,7 @@ use SalientHook\Modules\MaliciousPluginDetector;
 use SalientHook\Modules\PluginInstallLocker;
 use SalientHook\Modules\PluginUpdateLocker;
 use SalientHook\Modules\SafeCorridor;
+use SalientHook\Modules\SpamUserScanner;
 use SalientHook\Modules\ThemeIntegrityScanner;
 use SalientHook\Modules\ThreatScanner;
 
@@ -40,6 +41,7 @@ final class Bootstrap
         require_once SALIENTHOOK_DIR . 'src/Modules/ThemeIntegrityScanner.php';
         require_once SALIENTHOOK_DIR . 'src/Modules/ThreatScanner.php';
         require_once SALIENTHOOK_DIR . 'src/Modules/DatabaseScanner.php';
+        require_once SALIENTHOOK_DIR . 'src/Modules/SpamUserScanner.php';
         require_once SALIENTHOOK_DIR . 'src/Admin/SettingsPage.php';
 
         $updateLocker   = new PluginUpdateLocker();
@@ -49,12 +51,14 @@ final class Bootstrap
         $themeScanner   = new ThemeIntegrityScanner();
         $threatScanner  = new ThreatScanner();
         $dbScanner      = new DatabaseScanner();
+        $spamScanner    = new SpamUserScanner();
         $settingsPage   = new SettingsPage(
             $pluginDetector,
             $themeScanner,
             $threatScanner,
             $dbScanner,
-            $safeCorridor
+            $safeCorridor,
+            $spamScanner
         );
 
         // --- Runtime hooks (priority 0 = beat competing plugins) ---
@@ -65,6 +69,7 @@ final class Bootstrap
         add_action('plugins_loaded', [$themeScanner,   'register'], 0);
         add_action('plugins_loaded', [$threatScanner,  'register'], 0);
         add_action('plugins_loaded', [$dbScanner,      'register'], 0);
+        add_action('plugins_loaded', [$spamScanner,    'register'], 0);
         add_action('plugins_loaded', [$settingsPage,   'register'], 0);
 
         // --- Activation hooks ---

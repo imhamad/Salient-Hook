@@ -7,6 +7,7 @@ namespace SalientHook\Admin;
 use SalientHook\Modules\DatabaseScanner;
 use SalientHook\Modules\MaliciousPluginDetector;
 use SalientHook\Modules\SafeCorridor;
+use SalientHook\Modules\SpamUserScanner;
 use SalientHook\Modules\ThemeIntegrityScanner;
 use SalientHook\Modules\ThreatScanner;
 
@@ -17,13 +18,14 @@ if (! \defined('ABSPATH')) {
 /**
  * Settings > Salient Hook — Security Dashboard.
  *
- * Six panels:
- *  1. Lockdown Status        — live badges for every enforcement layer.
+ * Seven panels:
+ *  1. Lockdown Status          — live badges for every enforcement layer.
  *  2. Malicious Plugin Scanner — known-malware signatures + code IOCs.
  *  3. Theme Integrity Scanner  — theme files scanned for IOCs + JS injection.
  *  4. Threat Scanner           — uploads, .htaccess, Timthumb, cron, new admins.
  *  5. Database Scanner         — wp_options scanned for injected JS payloads.
- *  6. Safe Corridor            — password-gated temporary install window.
+ *  6. Spam User Scanner        — flags/deletes spam accounts by email analysis.
+ *  7. Safe Corridor            — password-gated temporary install window.
  *
  * Fonts: Sora (headings) + Sen (body), loaded from Google Fonts on this page only.
  */
@@ -34,19 +36,22 @@ final class SettingsPage
     private ThreatScanner           $threatScanner;
     private DatabaseScanner         $dbScanner;
     private SafeCorridor            $safeCorridor;
+    private SpamUserScanner         $spamScanner;
 
     public function __construct(
         MaliciousPluginDetector $pluginDetector,
         ThemeIntegrityScanner   $themeScanner,
         ThreatScanner           $threatScanner,
         DatabaseScanner         $dbScanner,
-        SafeCorridor            $safeCorridor
+        SafeCorridor            $safeCorridor,
+        SpamUserScanner         $spamScanner
     ) {
         $this->pluginDetector = $pluginDetector;
         $this->themeScanner   = $themeScanner;
         $this->threatScanner  = $threatScanner;
         $this->dbScanner      = $dbScanner;
         $this->safeCorridor   = $safeCorridor;
+        $this->spamScanner    = $spamScanner;
     }
 
     // =========================================================================
@@ -57,10 +62,13 @@ final class SettingsPage
     {
         add_action('admin_menu',            [$this, 'registerMenu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueueAssets']);
-        add_action('wp_ajax_salienthook_plugin_scan', [$this, 'handlePluginScanAjax']);
-        add_action('wp_ajax_salienthook_theme_scan',  [$this, 'handleThemeScanAjax']);
-        add_action('wp_ajax_salienthook_threat_scan', [$this, 'handleThreatScanAjax']);
-        add_action('wp_ajax_salienthook_db_scan',     [$this, 'handleDbScanAjax']);
+        add_action('wp_ajax_salienthook_plugin_scan',    [$this, 'handlePluginScanAjax']);
+        add_action('wp_ajax_salienthook_theme_scan',     [$this, 'handleThemeScanAjax']);
+        add_action('wp_ajax_salienthook_threat_scan',    [$this, 'handleThreatScanAjax']);
+        add_action('wp_ajax_salienthook_db_scan',        [$this, 'handleDbScanAjax']);
+        add_action('wp_ajax_salienthook_spam_scan',      [$this, 'handleSpamScanAjax']);
+        add_action('wp_ajax_salienthook_spam_delete',    [$this, 'handleSpamDeleteAjax']);
+        add_action('wp_ajax_salienthook_spam_settings',  [$this, 'handleSpamSettingsAjax']);
     }
 
     public function registerMenu(): void
@@ -103,14 +111,19 @@ final class SettingsPage
         $themeResults   = get_transient('salienthook_theme_scan_results');
         $threatResults  = get_transient(ThreatScanner::TRANSIENT_KEY);
         $dbResults      = get_transient(DatabaseScanner::TRANSIENT_KEY);
+        $spamResults    = get_transient(SpamUserScanner::TRANSIENT_KEY);
         $lastPluginScan = (int) get_option('salienthook_last_plugin_scan', 0);
         $lastThemeScan  = (int) get_option('salienthook_last_theme_scan', 0);
         $lastThreatScan = (int) get_option(ThreatScanner::OPTION_LAST, 0);
         $lastDbScan     = (int) get_option(DatabaseScanner::OPTION_LAST, 0);
+        $lastSpamScan   = (int) get_option(SpamUserScanner::OPTION_LAST, 0);
         $pluginResults  = ($pluginResults !== false) ? (array) $pluginResults : null;
         $themeResults   = ($themeResults  !== false) ? (array) $themeResults  : null;
         $threatResults  = ($threatResults !== false) ? (array) $threatResults : null;
         $dbResults      = ($dbResults     !== false) ? (array) $dbResults     : null;
+        $spamResults    = ($spamResults   !== false) ? (array) $spamResults   : null;
+        $spamBlockReg   = get_option(SpamUserScanner::OPTION_BLOCK, '0') === '1';
+        $spamUseSfs     = get_option(SpamUserScanner::OPTION_SFS,   '0') === '1';
 
         $corridorOpen    = SafeCorridor::isOpen();
         $corridorExpiry  = (int) get_option(SafeCorridor::OPTION_EXPIRY, 0);
@@ -171,6 +184,7 @@ final class SettingsPage
                 $lastDbScan,
                 $scanNonce
             );
+            $this->renderSpamPanel($spamResults, $lastSpamScan, $spamBlockReg, $spamUseSfs, $scanNonce);
             $this->renderSafeCorridorPanel($corridorOpen, $corridorExpiry, $hasCorridorPass, $corridorNonce);
             $this->renderInlineScript($scanNonce, $corridorNonce, $corridorOpen, $corridorExpiry);
             ?>
@@ -468,13 +482,14 @@ final class SettingsPage
         $html    = $this->alertHtml('danger', 'warning', $summary);
 
         $categoryLabels = [
-            'uploads_php' => 'PHP in Uploads',
-            'htaccess'    => '.htaccess',
-            'timthumb'    => 'Timthumb',
-            'cron'        => 'WP-Cron',
-            'new_admin'   => 'Admin Account',
-            'db_ioc'      => 'DB Injection',
-            'db_script_tag' => 'DB Script Tag',
+            'uploads_php'    => 'PHP in Uploads',
+            'htaccess'       => '.htaccess',
+            'timthumb'       => 'Timthumb',
+            'cron'           => 'WP-Cron',
+            'new_admin'      => 'Admin Account',
+            'risky_plugin'   => 'Risky Plugin',
+            'db_ioc'         => 'DB Injection',
+            'db_script_tag'  => 'DB Script Tag',
         ];
 
         $html .= '<table class="sh-table">';
@@ -506,7 +521,147 @@ final class SettingsPage
     }
 
     // =========================================================================
-    // Panel 6 — Safe Corridor
+    // Panel 6 — Spam User Scanner
+    // =========================================================================
+
+    private function renderSpamPanel(
+        ?array $results,
+        int    $lastScan,
+        bool   $blockReg,
+        bool   $useSfs,
+        string $nonce
+    ): void {
+        $lastLabel = $lastScan > 0
+            ? esc_html($this->formatTimestamp($lastScan))
+            : esc_html__('Never', 'salienthook');
+
+        echo '<div class="sh-card" style="margin-bottom:20px;">';
+        echo '<div class="sh-card-header">';
+        echo '<div class="sh-card-icon"><span class="dashicons dashicons-groups"></span></div>';
+        echo '<div>';
+        echo '<h2 class="sh-card-title">' . esc_html__('Spam User Scanner', 'salienthook') . '</h2>';
+        echo '<p class="sh-card-desc">'
+            . esc_html__('Scans registered user accounts for disposable email domains, suspicious TLD patterns, and optionally checks against the StopForumSpam database. Administrators are never flagged.', 'salienthook')
+            . '</p>';
+        echo '</div></div>';
+        echo '<div class="sh-card-body">';
+
+        // Settings row.
+        echo '<div class="sh-spam-settings">';
+
+        echo '<label class="sh-toggle-label">'
+            . '<input type="checkbox" id="sh-spam-block-reg" class="sh-spam-setting"'
+            . ' data-option="block_registrations"'
+            . ($blockReg ? ' checked' : '') . '>'
+            . '<span class="sh-toggle-text">'
+            . esc_html__('Block spam at registration', 'salienthook')
+            . '</span>'
+            . '<span class="sh-toggle-hint">'
+            . esc_html__('Rejects new accounts matching disposable domains or SFS hits in real time.', 'salienthook')
+            . '</span>'
+            . '</label>';
+
+        echo '<label class="sh-toggle-label">'
+            . '<input type="checkbox" id="sh-spam-use-sfs" class="sh-spam-setting"'
+            . ' data-option="use_sfs"'
+            . ($useSfs ? ' checked' : '') . '>'
+            . '<span class="sh-toggle-text">'
+            . esc_html__('Use StopForumSpam API', 'salienthook')
+            . '</span>'
+            . '<span class="sh-toggle-hint">'
+            . esc_html__('Checks email against a live crowd-sourced spammer database. Capped at 50 API calls per scan.', 'salienthook')
+            . '</span>'
+            . '</label>';
+
+        echo '<span id="sh-spam-settings-msg" style="font-size:12px;color:#16a34a;"></span>';
+        echo '</div>';
+
+        // Scan meta + button.
+        echo '<div class="sh-scan-meta" style="margin-top:14px;">'
+            . esc_html__('Last scan:', 'salienthook') . ' '
+            . '<span id="sh-last-spam-scan">' . $lastLabel . '</span>'
+            . '</div>';
+        echo '<button id="sh-run-spam-scan" class="sh-btn sh-btn-primary">'
+            . '<span class="dashicons dashicons-update" style="font-size:16px;width:16px;height:16px;margin-right:4px;vertical-align:middle;"></span>'
+            . esc_html__('Scan Users Now', 'salienthook')
+            . '</button>';
+
+        echo '<div id="sh-spam-scan-results" style="margin-top:16px;">';
+
+        if ($results !== null) {
+            echo $this->buildSpamResultsHtml($results);
+        }
+
+        echo '</div>';
+        echo '</div>'; // .sh-card-body
+        echo '</div>'; // .sh-card
+    }
+
+    // =========================================================================
+    // Result builder — spam scanner
+    // =========================================================================
+
+    /**
+     * @param  array<int, array<string, mixed>> $results
+     */
+    private function buildSpamResultsHtml(array $results): string
+    {
+        if (empty($results)) {
+            return $this->alertHtml('success', 'yes-alt', 'No spam users detected.');
+        }
+
+        $high   = \count(\array_filter($results, static fn ($r) => ($r['severity'] ?? '') === 'high'));
+        $total  = \count($results);
+        $summary = \sprintf('%d high-confidence, %d total spam account(s) detected.', $high, $total);
+
+        $html  = $this->alertHtml('warning', 'warning', $summary);
+        $html .= '<div class="sh-spam-bulk-bar">';
+        $html .= '<label style="font-size:12.5px;cursor:pointer;">'
+            . '<input type="checkbox" id="sh-spam-select-all" style="margin-right:5px;">'
+            . esc_html__('Select All', 'salienthook')
+            . '</label>';
+        $html .= '<button id="sh-spam-delete-btn" class="sh-btn sh-btn-danger sh-btn-sm" style="margin-left:auto;">'
+            . esc_html__('Delete Selected (0)', 'salienthook')
+            . '</button>';
+        $html .= '<span id="sh-spam-delete-msg" style="font-size:12px;margin-left:10px;"></span>';
+        $html .= '</div>';
+
+        $html .= '<table class="sh-table">';
+        $html .= '<thead><tr>'
+            . '<th style="width:28px;"></th>'
+            . '<th>' . esc_html__('User', 'salienthook') . '</th>'
+            . '<th>' . esc_html__('Email', 'salienthook') . '</th>'
+            . '<th>' . esc_html__('Registered', 'salienthook') . '</th>'
+            . '<th>' . esc_html__('Detection', 'salienthook') . '</th>'
+            . '<th style="width:80px;">' . esc_html__('Severity', 'salienthook') . '</th>'
+            . '</tr></thead><tbody>';
+
+        foreach ($results as $r) {
+            $userId     = (int) ($r['user_id'] ?? 0);
+            $login      = esc_html((string) ($r['login']      ?? ''));
+            $email      = esc_html((string) ($r['email']      ?? ''));
+            $registered = esc_html((string) ($r['registered'] ?? ''));
+            $reason     = esc_html((string) ($r['reason']     ?? ''));
+            $sev        = (string) ($r['severity'] ?? 'medium');
+            $badge      = '<span class="sh-badge sh-badge-' . esc_attr($sev) . '">' . esc_html(\strtoupper($sev)) . '</span>';
+            $editUrl    = esc_url(admin_url('user-edit.php?user_id=' . $userId));
+
+            $html .= '<tr>';
+            $html .= '<td><input type="checkbox" name="sh-spam-user[]" value="' . $userId . '" class="sh-spam-cb"></td>';
+            $html .= '<td><a href="' . $editUrl . '" target="_blank">' . $login . '</a></td>';
+            $html .= '<td><code>' . $email . '</code></td>';
+            $html .= '<td style="white-space:nowrap;">' . $registered . '</td>';
+            $html .= '<td>' . $reason . '</td>';
+            $html .= '<td>' . $badge . '</td>';
+            $html .= '</tr>';
+        }
+
+        $html .= '</tbody></table>';
+        return $html;
+    }
+
+    // =========================================================================
+    // Panel 7 — Safe Corridor
     // =========================================================================
 
     private function renderSafeCorridorPanel(
@@ -687,6 +842,78 @@ final class SettingsPage
             'html'      => $this->buildFlatResultsHtml($results, 'option'),
             'timestamp' => $this->formatTimestamp(\time()),
         ]);
+    }
+
+    public function handleSpamScanAjax(): void
+    {
+        check_ajax_referer('salienthook_scan', 'nonce');
+
+        if (! current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions.']);
+        }
+
+        $results = $this->spamScanner->runScan();
+        set_transient(SpamUserScanner::TRANSIENT_KEY, $results, DAY_IN_SECONDS);
+        update_option(SpamUserScanner::OPTION_LAST, \time(), false);
+
+        wp_send_json_success([
+            'html'      => $this->buildSpamResultsHtml($results),
+            'timestamp' => $this->formatTimestamp(\time()),
+        ]);
+    }
+
+    public function handleSpamDeleteAjax(): void
+    {
+        check_ajax_referer('salienthook_scan', 'nonce');
+
+        if (! current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions.']);
+        }
+
+        $rawIds  = isset($_POST['user_ids']) && \is_array($_POST['user_ids'])
+            ? $_POST['user_ids']
+            : [];
+        $userIds = \array_map('intval', $rawIds);
+        $userIds = \array_filter($userIds, static fn ($id) => $id > 0);
+
+        if (empty($userIds)) {
+            wp_send_json_error(['message' => 'No valid user IDs provided.']);
+        }
+
+        $deleted = $this->spamScanner->deleteUsers(\array_values($userIds));
+
+        // Refresh cached results after deletion.
+        $remaining = $this->spamScanner->runScan();
+        set_transient(SpamUserScanner::TRANSIENT_KEY, $remaining, DAY_IN_SECONDS);
+        update_option(SpamUserScanner::OPTION_LAST, \time(), false);
+
+        wp_send_json_success([
+            'deleted'   => $deleted,
+            'html'      => $this->buildSpamResultsHtml($remaining),
+            'timestamp' => $this->formatTimestamp(\time()),
+        ]);
+    }
+
+    public function handleSpamSettingsAjax(): void
+    {
+        check_ajax_referer('salienthook_scan', 'nonce');
+
+        if (! current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions.']);
+        }
+
+        $option = isset($_POST['option']) ? \sanitize_key((string) $_POST['option']) : '';
+        $value  = isset($_POST['value'])  ? (($_POST['value'] === '1' || $_POST['value'] === 'true') ? '1' : '0') : '0';
+
+        if ($option === 'block_registrations') {
+            update_option(SpamUserScanner::OPTION_BLOCK, $value, false);
+            wp_send_json_success(['message' => 'Setting saved.']);
+        } elseif ($option === 'use_sfs') {
+            update_option(SpamUserScanner::OPTION_SFS, $value, false);
+            wp_send_json_success(['message' => 'Setting saved.']);
+        } else {
+            wp_send_json_error(['message' => 'Unknown option.']);
+        }
     }
 
     // =========================================================================
@@ -1013,6 +1240,50 @@ final class SettingsPage
         .sh-expandable details[open] .sh-expandable-summary,
         .sh-expandable details[open] summary { background: #f1f5f9; }
 
+        /* Spam scanner — settings row */
+        .sh-spam-settings {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 20px;
+            padding: 12px 14px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            margin-bottom: 4px;
+        }
+        .sh-toggle-label {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #334155;
+        }
+        .sh-toggle-label input[type="checkbox"] {
+            margin-top: 2px;
+            flex-shrink: 0;
+        }
+        .sh-toggle-text { font-weight: 600; }
+        .sh-toggle-hint {
+            display: block;
+            font-size: 11.5px;
+            color: #94a3b8;
+            font-weight: 400;
+            margin-top: 2px;
+        }
+
+        /* Spam scanner — bulk action bar */
+        .sh-spam-bulk-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            margin-top: 4px;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 4px;
+        }
+
         /* Spin animation */
         @keyframes sh-spin {
             from { transform: rotate(0deg); }
@@ -1088,6 +1359,7 @@ final class SettingsPage
             runScan('sh-run-theme-scan',  'sh-theme-scan-results',  'sh-last-theme-scan',  'salienthook_theme_scan');
             runScan('sh-run-threat-scan', 'sh-threat-scan-results', 'sh-last-threat-scan', 'salienthook_threat_scan');
             runScan('sh-run-db-scan',     'sh-db-scan-results',     'sh-last-db-scan',     'salienthook_db_scan');
+            runScan('sh-run-spam-scan',   'sh-spam-scan-results',   'sh-last-spam-scan',   'salienthook_spam_scan');
 
             // ----------------------------------------------------------------
             // Corridor countdown
@@ -1180,6 +1452,99 @@ final class SettingsPage
             $('#sh-corridor-revoke, #sh-corridor-close-now').on('click', revokeHandler);
             // Banner "Close Now" link rendered by SafeCorridor::renderCorridorBanner()
             $(document).on('click', '#salienthook-corridor-close-now', revokeHandler);
+
+            // ----------------------------------------------------------------
+            // Spam scanner — settings toggles
+            // ----------------------------------------------------------------
+            $(document).on('change', '.sh-spam-setting', function () {
+                var $cb  = $(this);
+                var $msg = $('#sh-spam-settings-msg');
+                $msg.text('<?php echo esc_js(__('Saving…', 'salienthook')); ?>').css('color', '#64748b');
+
+                $.post(ajaxurl, {
+                    action: 'salienthook_spam_settings',
+                    nonce:  '<?php echo esc_js($scanNonce); ?>',
+                    option: $cb.data('option'),
+                    value:  $cb.is(':checked') ? '1' : '0'
+                })
+                .done(function (r) {
+                    if (r.success) {
+                        $msg.text('<?php echo esc_js(__('Saved', 'salienthook')); ?> ✓').css('color', '#16a34a');
+                        setTimeout(function () { $msg.text(''); }, 2000);
+                    } else {
+                        $msg.text('<?php echo esc_js(__('Save failed.', 'salienthook')); ?>').css('color', '#dc2626');
+                    }
+                })
+                .fail(function () {
+                    $msg.text('<?php echo esc_js(__('Request failed.', 'salienthook')); ?>').css('color', '#dc2626');
+                });
+            });
+
+            // ----------------------------------------------------------------
+            // Spam scanner — select-all checkbox
+            // ----------------------------------------------------------------
+            $(document).on('change', '#sh-spam-select-all', function () {
+                $('#sh-spam-scan-results input[name="sh-spam-user[]"]').prop('checked', $(this).is(':checked'));
+                updateSpamDeleteBtn();
+            });
+
+            $(document).on('change', 'input[name="sh-spam-user[]"]', function () {
+                var total    = $('#sh-spam-scan-results input[name="sh-spam-user[]"]').length;
+                var checked  = $('#sh-spam-scan-results input[name="sh-spam-user[]"]:checked').length;
+                $('#sh-spam-select-all').prop('indeterminate', checked > 0 && checked < total)
+                                        .prop('checked', checked === total && total > 0);
+                updateSpamDeleteBtn();
+            });
+
+            function updateSpamDeleteBtn() {
+                var n = $('#sh-spam-scan-results input[name="sh-spam-user[]"]:checked').length;
+                $('#sh-spam-delete-btn').text('<?php echo esc_js(__('Delete Selected', 'salienthook')); ?> (' + n + ')');
+            }
+
+            // ----------------------------------------------------------------
+            // Spam scanner — delete selected
+            // ----------------------------------------------------------------
+            $(document).on('click', '#sh-spam-delete-btn', function (e) {
+                e.preventDefault();
+
+                var ids = [];
+                $('#sh-spam-scan-results input[name="sh-spam-user[]"]:checked').each(function () {
+                    ids.push($(this).val());
+                });
+
+                if (! ids.length) {
+                    alert('<?php echo esc_js(__('Select at least one user to delete.', 'salienthook')); ?>');
+                    return;
+                }
+
+                if (! confirm('<?php echo esc_js(__('Delete the selected user(s)? This cannot be undone.', 'salienthook')); ?>')) {
+                    return;
+                }
+
+                var $btn = $(this);
+                var $msg = $('#sh-spam-delete-msg');
+                $btn.prop('disabled', true).text('<?php echo esc_js(__('Deleting…', 'salienthook')); ?>');
+                $msg.text('');
+
+                $.post(ajaxurl, {
+                    action:   'salienthook_spam_delete',
+                    nonce:    '<?php echo esc_js($scanNonce); ?>',
+                    user_ids: ids
+                })
+                .done(function (r) {
+                    if (r.success) {
+                        $('#sh-spam-scan-results').html(r.data.html);
+                        $('#sh-last-spam-scan').text(r.data.timestamp);
+                        $msg.text('<?php echo esc_js(__('Deleted:', 'salienthook')); ?> ' + r.data.deleted).css('color', '#16a34a');
+                    } else {
+                        $msg.text('<?php echo esc_js(__('Delete failed.', 'salienthook')); ?>').css('color', '#dc2626');
+                    }
+                })
+                .fail(function () {
+                    $msg.text('<?php echo esc_js(__('Request failed.', 'salienthook')); ?>').css('color', '#dc2626');
+                })
+                .always(function () { $btn.prop('disabled', false); });
+            });
 
         }(jQuery));
         </script>
