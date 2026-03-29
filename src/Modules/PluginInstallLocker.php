@@ -77,6 +77,11 @@ final class PluginInstallLocker
      */
     public function revokeInstallCapability(array $allCaps): array
     {
+        // Safe Corridor is active — step aside for the duration of the token.
+        if (SafeCorridor::isOpen()) {
+            return $allCaps;
+        }
+
         $allCaps['install_plugins']  = false;
         $allCaps['upload_plugins']   = false;
 
@@ -96,6 +101,10 @@ final class PluginInstallLocker
      */
     public function removeInstallMenuItems(): void
     {
+        if (SafeCorridor::isOpen()) {
+            return;
+        }
+
         remove_submenu_page('plugins.php', 'plugin-install.php');
     }
 
@@ -112,6 +121,10 @@ final class PluginInstallLocker
      */
     public function interceptInstallRequests(): void
     {
+        if (SafeCorridor::isOpen()) {
+            return;
+        }
+
         global $pagenow;
 
         $blocked = ['plugin-install.php', 'plugin-upload.php'];
@@ -153,6 +166,10 @@ final class PluginInstallLocker
      */
     public function stripZipFromAllowedMimes(array $mimes): array
     {
+        if (SafeCorridor::isOpen()) {
+            return $mimes;
+        }
+
         $zipExtensions = ['zip', 'gz', 'tar', 'tgz'];
 
         foreach ($zipExtensions as $ext) {

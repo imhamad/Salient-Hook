@@ -8,7 +8,9 @@ use SalientHook\Admin\SettingsPage;
 use SalientHook\Modules\MaliciousPluginDetector;
 use SalientHook\Modules\PluginInstallLocker;
 use SalientHook\Modules\PluginUpdateLocker;
+use SalientHook\Modules\SafeCorridor;
 use SalientHook\Modules\ThemeIntegrityScanner;
+use SalientHook\Modules\ThreatScanner;
 
 if (! \defined('ABSPATH')) {
     exit;
@@ -31,22 +33,28 @@ final class Bootstrap
     public static function init(): void
     {
         require_once SALIENTHOOK_DIR . 'src/Modules/PluginUpdateLocker.php';
+        require_once SALIENTHOOK_DIR . 'src/Modules/SafeCorridor.php';
         require_once SALIENTHOOK_DIR . 'src/Modules/PluginInstallLocker.php';
         require_once SALIENTHOOK_DIR . 'src/Modules/MaliciousPluginDetector.php';
         require_once SALIENTHOOK_DIR . 'src/Modules/ThemeIntegrityScanner.php';
+        require_once SALIENTHOOK_DIR . 'src/Modules/ThreatScanner.php';
         require_once SALIENTHOOK_DIR . 'src/Admin/SettingsPage.php';
 
         $updateLocker   = new PluginUpdateLocker();
+        $safeCorridor   = new SafeCorridor();
         $installLocker  = new PluginInstallLocker();
         $pluginDetector = new MaliciousPluginDetector();
         $themeScanner   = new ThemeIntegrityScanner();
-        $settingsPage   = new SettingsPage($pluginDetector, $themeScanner);
+        $threatScanner  = new ThreatScanner();
+        $settingsPage   = new SettingsPage($pluginDetector, $themeScanner, $threatScanner, $safeCorridor);
 
         // --- Runtime hooks (priority 0 = beat competing plugins) ---
         add_action('plugins_loaded', [$updateLocker,   'register'], 0);
+        add_action('plugins_loaded', [$safeCorridor,   'register'], 0);
         add_action('plugins_loaded', [$installLocker,  'register'], 0);
         add_action('plugins_loaded', [$pluginDetector, 'register'], 0);
         add_action('plugins_loaded', [$themeScanner,   'register'], 0);
+        add_action('plugins_loaded', [$threatScanner,  'register'], 0);
         add_action('plugins_loaded', [$settingsPage,   'register'], 0);
 
         // --- Activation hooks ---
