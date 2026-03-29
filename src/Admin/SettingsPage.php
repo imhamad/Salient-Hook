@@ -286,7 +286,7 @@ final class SettingsPage
             } elseif ($key === 'theme') {
                 echo $this->buildThemeResultsHtml($results);
             } elseif ($key === 'threat') {
-                echo $this->buildFlatResultsHtml($results, 'category');
+                echo $this->buildFlatResultsHtml($results, 'path');
             } else {
                 echo $this->buildFlatResultsHtml($results, 'option');
             }
@@ -536,10 +536,8 @@ final class SettingsPage
             echo '<div class="sh-alert sh-alert-danger" style="margin-bottom:20px;">'
                 . '<span class="dashicons dashicons-unlock" style="margin-top:1px;"></span>'
                 . '<div><strong>' . esc_html__('Corridor is OPEN', 'salienthook') . '</strong> — '
-                . \sprintf(
-                    esc_html__('Plugin installation is active. Closes in %d minute(s).', 'salienthook'),
-                    $mins
-                )
+                . esc_html__('Plugin installation is active. Closes in', 'salienthook') . ' '
+                . '<span id="sh-corridor-panel-countdown">' . $mins . esc_html__(' minute(s)', 'salienthook') . '</span>.'
                 . ' <a href="#" id="sh-corridor-close-now" style="color:#b91c1c;font-weight:700;">'
                 . esc_html__('Close Now', 'salienthook') . '</a></div></div>';
         } else {
