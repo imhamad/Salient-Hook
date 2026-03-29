@@ -28,6 +28,12 @@ if (! \defined('ABSPATH')) {
  *
  *  5. Recently created admin accounts — flags any administrator account created
  *     within the past 24 hours as a potential privilege escalation artefact.
+ *
+ *  6. Installed plugins with known critical/high CVEs — checks all installed
+ *     plugins against a curated list of plugins that have had unauthenticated
+ *     RCE, auth bypass, SQLi, or privilege-escalation vulnerabilities actively
+ *     exploited in the wild (e.g. WP File Manager, LiteSpeed Cache, Really
+ *     Simple SSL). Findings include the CVE, installed version, and fix advice.
  */
 final class ThreatScanner
 {
@@ -91,6 +97,122 @@ final class ThreatScanner
     ];
 
     /**
+     * High-risk plugins with actively-exploited critical or high-severity CVEs.
+     *
+     * Keyed by plugin directory slug (the folder name inside wp-content/plugins/).
+     * Every entry triggers a finding regardless of installed version — admins
+     * should verify they are running the patched version or uninstall if unused.
+     *
+     * Sources: Wordfence, Patchstack, NVD, Rapid7.
+     *
+     * @var array<string, array{name: string, cve: string, severity: string, detail: string}>
+     */
+    private const RISKY_PLUGINS = [
+        'wp-file-manager' => [
+            'name'     => 'WP File Manager',
+            'cve'      => 'CVE-2020-25213',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated RCE via exposed elFinder connector — massively exploited within hours of disclosure (CVSS 10.0). Uninstall unless actively managed; ensure version ≥ 6.9.',
+        ],
+        'really-simple-ssl' => [
+            'name'     => 'Really Simple Security (SSL)',
+            'cve'      => 'CVE-2024-10924',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Authentication bypass when 2FA is enabled — unauthenticated attacker can log in as any admin (CVSS 9.8). 4M+ sites affected. Ensure version ≥ 9.1.2.',
+        ],
+        'litespeed-cache' => [
+            'name'     => 'LiteSpeed Cache',
+            'cve'      => 'CVE-2024-28000',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated privilege escalation via brute-forceable weak security hash (CVSS 9.8). 6M+ sites affected. Ensure version ≥ 6.4.1.',
+        ],
+        'essential-addons-for-elementor-lite' => [
+            'name'     => 'Essential Addons for Elementor',
+            'cve'      => 'CVE-2023-32243',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated privilege escalation via broken password-reset — any visitor can take over any account including admin (CVSS 9.8). Ensure version ≥ 5.7.2.',
+        ],
+        'iwp-client' => [
+            'name'     => 'InfiniteWP Client',
+            'cve'      => 'CVE-2020-8772',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Authentication bypass via crafted serialised payload — logs in as admin with no credentials required (CVSS 9.8). Ensure version ≥ 1.9.7.',
+        ],
+        'wp-database-reset' => [
+            'name'     => 'WP Database Reset',
+            'cve'      => 'CVE-2020-35234',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated full database wipe and automatic admin privilege escalation. Uninstall immediately if not in active use.',
+        ],
+        'wp-automatic' => [
+            'name'     => 'WordPress Automatic Plugin',
+            'cve'      => 'CVE-2024-27956',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated SQL injection bypasses auth and creates rogue admin accounts (CVSS 9.9). 5.5M+ exploit attempts logged. Ensure version ≥ 3.92.1.',
+        ],
+        'woocommerce-payments' => [
+            'name'     => 'WooCommerce Payments',
+            'cve'      => 'CVE-2023-28121',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Authentication bypass via forged HTTP header impersonates any user including admin (CVSS 9.8). Metasploit module exists. Ensure version ≥ 5.6.2.',
+        ],
+        'ottokit' => [
+            'name'     => 'OttoKit',
+            'cve'      => 'CVE-2025-27007',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated privilege escalation — creates admin accounts when connection setup is incomplete (CVSS 9.8). Exploited within 91 minutes of disclosure. Ensure version ≥ 1.0.82.',
+        ],
+        'suretriggers' => [
+            'name'     => 'SureTriggers (OttoKit legacy)',
+            'cve'      => 'CVE-2025-27007',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated privilege escalation — creates admin accounts when connection setup is incomplete (CVSS 9.8). Update or replace with OttoKit ≥ 1.0.82.',
+        ],
+        'give' => [
+            'name'     => 'GiveWP – Donation Plugin',
+            'cve'      => 'CVE-2024-8353',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated PHP object injection via donation form — leads to RCE (CVSS 10.0). Ensure version ≥ 3.16.2.',
+        ],
+        'wpgateway' => [
+            'name'     => 'WPGateway',
+            'cve'      => 'CVE-2022-3180',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Zero-day unauthenticated admin account creation — exploited before a patch existed (CVSS 9.8). Plugin removed from WordPress.org. Uninstall immediately.',
+        ],
+        'backupbuddy' => [
+            'name'     => 'BackupBuddy',
+            'cve'      => 'CVE-2022-31474',
+            'severity' => self::SEV_HIGH,
+            'detail'   => 'Unauthenticated arbitrary file read — attackers exfiltrated wp-config.php and /etc/passwd (CVSS 7.5). Nearly 5M exploit attempts. Ensure version ≥ 8.7.5.',
+        ],
+        'themegrill-demo-importer' => [
+            'name'     => 'ThemeGrill Demo Importer',
+            'cve'      => 'No CVE',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated full database wipe and automatic admin login — actively exploited in the wild. Ensure version ≥ 1.3.5 or uninstall.',
+        ],
+        'hunk-companion' => [
+            'name'     => 'Hunk Companion',
+            'cve'      => 'CVE-2024-11972',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated arbitrary plugin installation — attackers install vulnerable plugins to chain into RCE (CVSS 9.8). 8.8M blocked attempts. Ensure version ≥ 1.9.0.',
+        ],
+        'ultimate-member' => [
+            'name'     => 'Ultimate Member',
+            'cve'      => 'CVE-2024-1071',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated SQL injection via unsanitised sort parameter — full database extraction possible (CVSS 9.8). Ensure version ≥ 2.8.3.',
+        ],
+        'wpvivid-backuprestore' => [
+            'name'     => 'WPvivid Backup & Migration',
+            'cve'      => 'CVE-2024-1357',
+            'severity' => self::SEV_CRITICAL,
+            'detail'   => 'Unauthenticated arbitrary file upload and RCE via handler with no file-extension validation. Ensure the plugin is fully up to date.',
+        ],
+    ];
+
+    /**
      * WP core cron hooks — excluded from suspicious-cron checks.
      *
      * @var string[]
@@ -138,6 +260,7 @@ final class ThreatScanner
         $this->scanTimthumb($findings);
         $this->checkSuspiciousCronHooks($findings);
         $this->checkRecentAdminAccounts($findings);
+        $this->checkRiskyPluginsInstalled($findings);
 
         // Sort by severity: critical → high → medium.
         \usort($findings, static function (array $a, array $b): int {
@@ -375,6 +498,52 @@ final class ThreatScanner
                 'detail'   => 'Administrator account created in the last 24 hours: "'
                     . $user->user_login . '" (email: ' . $user->user_email
                     . ', registered: ' . $user->user_registered . '). Verify this was intentional.',
+            ];
+        }
+    }
+
+    // =========================================================================
+    // Check 6: Installed plugins with known critical/high CVEs
+    // =========================================================================
+
+    /**
+     * Flags any installed plugin whose slug appears in the RISKY_PLUGINS list.
+     *
+     * This does NOT deactivate the plugin — it only creates an advisory finding
+     * so the admin can verify the installed version is patched or remove the
+     * plugin if it is not needed.
+     *
+     * @param  array<int, array<string, string>> $findings
+     */
+    private function checkRiskyPluginsInstalled(array &$findings): void
+    {
+        if (! \function_exists('get_plugins')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        $allPlugins = get_plugins();
+
+        foreach ($allPlugins as $pluginFile => $pluginData) {
+            // Slug = directory component before the first slash.
+            // Single-file plugins have no slash; treat the filename (sans .php) as slug.
+            $parts = \explode('/', $pluginFile, 2);
+            $slug  = \count($parts) === 2 ? $parts[0] : \pathinfo($pluginFile, PATHINFO_FILENAME);
+
+            if (! isset(self::RISKY_PLUGINS[$slug])) {
+                continue;
+            }
+
+            $risk    = self::RISKY_PLUGINS[$slug];
+            $version = isset($pluginData['Version']) && $pluginData['Version'] !== ''
+                ? $pluginData['Version']
+                : 'unknown';
+
+            $findings[] = [
+                'category' => 'risky_plugin',
+                'severity' => $risk['severity'],
+                'path'     => 'Plugins — ' . \esc_html($risk['name']),
+                'detail'   => '(' . $risk['cve'] . ') ' . $risk['detail']
+                    . ' Installed version: ' . \esc_html($version) . '.',
             ];
         }
     }

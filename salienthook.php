@@ -4,7 +4,7 @@
  * Plugin Name:       Salient Hook — Plugin Lockdown
  * Plugin URI:        https://hamadhere.de
  * Description:       Disables plugin updates and blocks new plugin installation to harden WordPress against unauthorised plugin injection.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Author:            Hamad K - Lead Developer
@@ -23,7 +23,7 @@ if (! \defined('ABSPATH')) {
     exit;
 }
 
-\define('SALIENTHOOK_VERSION', '1.2.0');
+\define('SALIENTHOOK_VERSION', '1.2.1');
 \define('SALIENTHOOK_FILE', __FILE__);
 \define('SALIENTHOOK_DIR', plugin_dir_path(__FILE__));
 
